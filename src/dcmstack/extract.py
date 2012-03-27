@@ -8,10 +8,7 @@ from collections import OrderedDict, namedtuple, Counter
 import dicom
 from dicom.datadict import keyword_for_tag
 from nibabel.nicom import csareader
-#from nibabel.nicom.dicomwrappers import Wrapper
-
-# AK: I'm cheating here. There is probably a better way to do this!
-from nibabel.nicom.dicomwrappers import MosaicWrapper as Wrapper
+from nibabel.nicom.dicomwrappers import Wrapper, MosaicWrapper
 
 def ignore_private(elem):
     '''Ignore private DICOM elements (odd group number).'''
@@ -340,6 +337,55 @@ class ExtractedDcmWrapper(Wrapper):
             return True
         try:
             super(ExtractedDcmWrapper, self).__getitem__(key)
+        except KeyError:
+            return False
+        else:
+            return True
+            
+    @classmethod
+    def from_dicom(klass, dcm, extractor=None):
+        '''Make a wrapper from a dicom using the callables 'extractor' and 
+        'meta_filter'. The extractor should take the dicom and return the 
+        dictionary to be used as the 'ext_meta' attribute of the wrapper. The 
+        meta_filter filter should return True for key/value pairs that should be 
+        filtered out of 'ext_meta'. Filtered values will still be available in 
+        the 'dcm_data' attribute (and thus through item lookups on the object).
+        
+        If 'extractor' is None it will default to the modules 'MetaExtractor'. 
+        If 'meta_filter' is None it will default to the module attribute 
+        default_meta_filter.
+        '''
+        if extractor is None:
+            extractor = MetaExtractor()
+        
+        return klass(dcm, extractor(dcm))
+        
+class ExtractedDcmMosaicWrapper(MosaicWrapper):
+    '''Extends a nibabel.nicom.dicom_wrappers.Wrapper with an additional 
+    dictionary of meta data 'ext_meta'. Item lookups on this wrapper will 
+    prefer results from 'ext_meta', falling back to the base classes
+    item lookup.'''
+    
+    def __init__(self, dcm_data=None, ext_meta=None):
+        if ext_meta == None:
+            ext_meta = OrderedDict()
+        
+        self.ext_meta = ext_meta
+        super(ExtractedDcmMosaicWrapper, self).__init__(dcm_data)
+        
+    def __getitem__(self, key):
+        ''' Return values from ext_meta or, if the key is not there, the 
+        dcm_data attribute.'''
+        if key in self.ext_meta:
+            return self.ext_meta[key]
+        else:
+            return super(ExtractedDcmMosaicWrapper, self).__getitem__(key)
+            
+    def __contains__(self, key):
+        if key in self.ext_meta:
+            return True
+        try:
+            super(ExtractedDcmMosaicWrapper, self).__getitem__(key)
         except KeyError:
             return False
         else:
