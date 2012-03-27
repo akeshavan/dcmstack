@@ -57,7 +57,6 @@ def main(argv=sys.argv):
     input_opt.add_argument('--file-ext', default='.dcm', help=('Only try reading '
                            'files with the given extension. Default: '
                            '%(default)s'))
-    input_opt.add_argument('--ismosaic', action='store_true', default=False, help=('True if dicom is mosaic'))
     input_opt.add_argument('--allow-dummies', action='store_true', default=False,
                            help=('Allow DICOM files that are missing pixel '
                            'data, filling that slice of the output nifti with '
@@ -247,8 +246,7 @@ def main(argv=sys.argv):
         #Build the stacks for this directory
         stacks = parse_and_stack(src_paths, args.output_name, args.opt_suffix,
                                  time_order, vector_order, args.allow_dummies, 
-                                 extractor, meta_filter, args.force_read, True,
-                                 ismosaic=args.ismosaic)
+                                 extractor, meta_filter, args.force_read, True)
         
         if args.verbose:
             print "Created %d stacks of DICOM images" % len(stacks)
@@ -265,7 +263,7 @@ def main(argv=sys.argv):
                 print "Writing out stack to path %s" % out_path
             
             nii = stack.to_nifti(args.voxel_order, 
-                                 args.embed_meta or args.dump_meta, args.ismosaic)
+                                 args.embed_meta or args.dump_meta)
             
             if args.dump_meta:
                 nii_wrp = NiftiWrapper(nii)
