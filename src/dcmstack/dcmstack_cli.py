@@ -57,6 +57,7 @@ def main(argv=sys.argv):
     input_opt.add_argument('--file-ext', default='.dcm', help=('Only try reading '
                            'files with the given extension. Default: '
                            '%(default)s'))
+    input_opt.add_argument('--ismosaic', action='store_true', default=False, help=('True if dicom is mosaic'))
     input_opt.add_argument('--allow-dummies', action='store_true', default=False,
                            help=('Allow DICOM files that are missing pixel '
                            'data, filling that slice of the output nifti with '
@@ -234,8 +235,10 @@ def main(argv=sys.argv):
 
         #Build a list of paths to source files
         glob_str = os.path.join(src_dir, '*')
+        
         if args.file_ext:
             glob_str += args.file_ext
+        
         src_paths = glob(glob_str)
         
         if args.verbose:
@@ -259,9 +262,9 @@ def main(argv=sys.argv):
 
             if args.verbose:
                 print "Writing out stack to path %s" % out_path
-
+            
             nii = stack.to_nifti(args.voxel_order, 
-                                 args.embed_meta or args.dump_meta)
+                                 args.embed_meta or args.dump_meta, args.ismosaic)
             
             if args.dump_meta:
                 nii_wrp = NiftiWrapper(nii)

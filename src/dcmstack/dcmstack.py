@@ -278,7 +278,8 @@ class DicomStack(object):
         IncongruentImageError will be raised. If the image has the same slice
         location or (if the time_order and vector_order are not None) 
         time/vector values, then an ImageCollisionError will be raised.'''
-
+        
+          
         #If we haven't seen a non-dummy, try pulling out the pixel array dims
         is_dummy = False
         if len(self._files_info) <= self._num_dummies:
@@ -300,6 +301,8 @@ class DicomStack(object):
             self._slice_dir = np.cross(self._row_idx_dir, self._col_idx_dir)
             if 'InplanePhaseEncodingDirection' in dcm:
                 self._phase_enc_dir = dcm['InplanePhaseEncodingDirection']
+            
+            
         else: #Otherwise check for consistency
             try:
                 if (dcm['Rows'] != self._num_rows or 
@@ -326,6 +329,7 @@ class DicomStack(object):
         #Pull the info used for sorting
         slice_pos = np.dot(self._slice_dir, 
                            np.array(dcm['ImagePositionPatient']))
+
         self._slice_pos_vals.add(slice_pos)
         time_val = None
         if self._time_order:
@@ -418,18 +422,21 @@ class DicomStack(object):
                                              str(curr_vec_val))
                         raise InvalidStackError(''.join(error_msg))
         
+        if self._ismosaic:
+            self._num_rows, self._num_cols, slices_per_vol = self._files_info[0][0].image_shape
+        
         #Stack appears to be valid, build the shape tuple
         shape = [self._num_rows,
                  self._num_cols,
                  slices_per_vol,
                  num_time_points,
                  num_vec_comps]
+
         if shape[4] == 1:
             shape = shape[:-1]
             if shape[3] == 1:
                 shape = shape[:-1]
         self._shape = tuple(shape)
-            
         self._shape_dirty = False
         return self._shape
 
@@ -443,24 +450,31 @@ class DicomStack(object):
         '''
         
         #Create a numpy array for storing the voxel data
+
         stack_shape = self.get_shape()
         
         #Pad the shape out with ones to simplify filling the stack
         stack_shape = tuple(list(stack_shape) + ((5 - len(stack_shape)) * [1]))
         vox_array = np.zeros(stack_shape, np.int16)
         
-        #Fill the array with data
-        for vec_idx in range(stack_shape[4]):
-            for time_idx in range(stack_shape[3]):
-                for slice_idx in range(stack_shape[2]):
-                    file_idx = (vec_idx*(stack_shape[3]*stack_shape[2]) + 
-                                time_idx*(stack_shape[2]) + slice_idx)
-                    if self._files_info[file_idx][2]:
-                        vox_array[:, :, slice_idx, time_idx, vec_idx] = \
-                            np.iinfo(vox_array.dtype).max
-                    else:
-                        vox_array[:, :, slice_idx, time_idx, vec_idx] = \
-                            self._files_info[file_idx][0].get_pixel_array()
+        if not self._ismosaic:
+            #Fill the array with data
+            for vec_idx in range(stack_shape[4]):
+                for time_idx in range(stack_shape[3]):
+                    for slice_idx in range(stack_shape[2]):
+                        file_idx = (vec_idx*(stack_shape[3]*stack_shape[2]) + 
+                                    time_idx*(stack_shape[2]) + slice_idx)
+                        if self._files_info[file_idx][2]:
+                            vox_array[:, :, slice_idx, time_idx, vec_idx] = \
+                                np.iinfo(vox_array.dtype).max
+                        else:
+                            vox_array[:, :, slice_idx, time_idx, vec_idx] = \
+                                self._files_info[file_idx][0].get_pixel_array()
+        else:
+            for vec_idx in range(stack_shape[4]):
+                for time_idx, file_info in enumerate(self._files_info):
+                    vox_array[:,:,:,time_idx, vec_idx] = file_info[0].get_data()
+                       
         
         #Trim unused time/vector dimensions
         if stack_shape[4] == 1:
@@ -485,10 +499,13 @@ class DicomStack(object):
         scaled_col_idx_dir = self._col_idx_dir*self._col_idx_spacing
         
         #Determine the affine mapping indices to DICOM Patient Space (DPS)
-        affine = np.c_[np.append(scaled_row_idx_dir, [0]),
-                       np.append(scaled_col_idx_dir, [0]),
-                       np.append(scaled_slice_dir, [0]),
-                       np.append(offset, [1])]
+        if not self._ismosaic:
+            affine = np.c_[np.append(scaled_row_idx_dir, [0]),
+                           np.append(scaled_col_idx_dir, [0]),
+                           np.append(scaled_slice_dir, [0]),
+                           np.append(offset, [1])]
+        else:
+            affine = self._files_info[0][0].get_affine()
         
         return vox_array, affine
         
@@ -646,11 +663,13 @@ class DicomStack(object):
         self._meta_dirty = False
         return self._meta
 
-    def to_nifti(self, voxel_order='rpi', embed_meta=False):
+    def to_nifti(self, voxel_order='rpi', embed_meta=False, ismosaic=False):
         '''Calls 'get_array_and_affine', updates the affine to map to Nifti
         patient space, and then creates a nibabel.Nifti1Image. If 'embed_meta' 
         is True, create a meta_nii.DcmMetaExtension and include it in the Nifti 
         header extensions.'''
+        
+        self._ismosaic = ismosaic
             
         #Get the voxel data and affine mapping to DICOM patient space (DPS)        
         data, dps_affine = self.get_array_and_affine()
@@ -692,6 +711,7 @@ class DicomStack(object):
         #Create the nifti image using the data array
         #TODO: Nibabel 1.2 will allow us to set the affine here without wiping 
         #out the qform and the the qform code
+        
         nifti_image = nb.Nifti1Image(data, None)
         nifti_header = nifti_image.get_header()
         
@@ -774,6 +794,7 @@ def parse_and_stack(src_paths, key_format='%(SeriesNumber)03d-%(ProtocolName)s',
         try:
             dcm = dicom.read_file(dcm_path, force=force)
             wrp_dcm = ExtractedDcmWrapper.from_dicom(dcm, extractor)
+            
             base_key = key_format % wrp_dcm
             opt_suffix = opt_key_suffix % wrp_dcm
             stack_key = base_key
@@ -800,6 +821,7 @@ def parse_and_stack(src_paths, key_format='%(SeriesNumber)03d-%(ProtocolName)s',
                                                 vector_order, 
                                                 allow_dummies, 
                                                 meta_filter)
+            
             results[stack_key].add_dcm(wrp_dcm)
         except Exception, e:
             if warn_on_except:

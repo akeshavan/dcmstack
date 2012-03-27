@@ -8,7 +8,10 @@ from collections import OrderedDict, namedtuple, Counter
 import dicom
 from dicom.datadict import keyword_for_tag
 from nibabel.nicom import csareader
-from nibabel.nicom.dicomwrappers import Wrapper
+#from nibabel.nicom.dicomwrappers import Wrapper
+
+# AK: I'm cheating here. There is probably a better way to do this!
+from nibabel.nicom.dicomwrappers import MosaicWrapper as Wrapper
 
 def ignore_private(elem):
     '''Ignore private DICOM elements (odd group number).'''
